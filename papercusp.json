@@ -1,0 +1,109 @@
+{
+  "distribution": "cupboard",
+  "$schema": "https://papercuspai.com/schema/papercusp-plugin.schema.json",
+  "kind": "plugin",
+  "name": "instagram",
+  "version": "0.1.0",
+  "papercusp": "^0.1.0",
+  "description": "Instagram professional-account comments, replies, signed mentions and media posts through host-held Facebook Login credentials. Recorded-fake verified; live acceptance pending.",
+  "author": "Papercusp",
+  "license": "MIT",
+  "main": "./index.cjs",
+  "runtime": { "kind": "daemon", "daemonCommand": ["node", "daemon.cjs"] },
+  "capabilities": [],
+  "tools": [],
+  "provider": {
+    "rateBudget": {
+      "verifiedAt": "2026-08-23",
+      "sources": [
+        "https://developers.facebook.com/docs/instagram-platform/overview",
+        "https://developers.facebook.com/docs/instagram-platform/content-publishing",
+        "https://developers.facebook.com/docs/instagram-platform/comment-moderation",
+        "https://developers.facebook.com/docs/instagram-platform/reference/instagram-media",
+        "https://developers.facebook.com/docs/instagram-platform/instagram-graph-api/reference/ig-media/comments/",
+        "https://developers.facebook.com/docs/instagram-platform/instagram-graph-api/reference/ig-comment/",
+        "https://developers.facebook.com/docs/instagram-platform/instagram-graph-api/reference/ig-comment/replies/",
+        "https://developers.facebook.com/docs/permissions",
+        "https://developers.facebook.com/docs/graph-api/overview/rate-limiting"
+      ],
+      "budgetHeaders": [
+        "X-Business-Use-Case-Usage"
+      ],
+      "dynamicQuota": {
+        "formula": "Calls within 24 hours = 4800 * Number of Impressions",
+        "driver": "the number of times any content from the app user's Instagram professional account has entered a person's screen within the last 24 hours",
+        "usageHeader": "X-Business-Use-Case-Usage",
+        "assumedDailyFloor": 4800,
+        "throttleCodes": [
+          80002
+        ],
+        "retryExtendsBlock": true
+      },
+      "buckets": {
+        "publishing": {
+          "appliesTo": "POST /{ig-id}/media_publish — organic feed posts (a carousel counts as one)",
+          "perDay": 50,
+          "unit": "calls",
+          "verbs": [
+            "post"
+          ],
+          "notes": "Call-capped, not unit-capped: the cap counts PUBLISHES regardless of media size, and \"This limit is enforced on the POST /{ig-id}/media_publish endpoint\" — so container creation and status polling do not draw on it. `reply` is deliberately NOT declared here: a comment reply is not a published post and the cap is documented on media_publish alone, so replies fall to the call budget instead."
+        }
+      },
+      "notes": "THE PUBLISHING CAP IS QUERYABLE AND THE CALL BUDGET IS NOT — the sharpest operational difference from Facebook Pages. GET /{ig-id}/content_publishing_limit reports \"app user's current publishing rate limit usage\" as an ABSOLUTE figure, so the 100-vs-50 documentation contradiction is resolvable at runtime by asking; the 50 above is only the compile-time floor to act on before the first answer arrives. The call budget has no such endpoint: X-Business-Use-Case-Usage reports percentages only, which is why `assumedDailyFloor` exists at all (D-029). ⚠ ONE UNRESOLVED AMBIGUITY, recorded rather than smoothed over: the Instagram overview states the call formula over \"a rolling 24 hour window\", while the header reference describes `call_count` as \"a whole number expressing the percentage of allowed calls made by your app over a rolling one hour period\". The two windows cannot both be right. It does not change the cap arithmetic — a percentage of the allowance is a headroom fraction either way — but it does change how fast headroom recovers, so no code may assume a recovery rate from it. ⚠ A THROTTLE MUST NOT BE RETRIED: \"When the limit has been reached, stop making API calls. Continuing to make calls will continue to increase your call count, which will increase the time before calls will be successful again.\" Declared usage type: instagram."
+    },
+    "verification": {
+      "verifiedAt": "2026-10-16",
+      "sources": [
+        "https://github.com/facebook/facebook-python-business-sdk/blob/main/facebook_business/adobjects/igmedia.py",
+        "https://github.com/facebook/facebook-python-business-sdk/blob/main/facebook_business/adobjects/igcomment.py",
+        "https://developers.facebook.com/documentation/instagram-platform/instagram-api-with-facebook-login/mentions",
+        "https://developers.facebook.com/documentation/instagram-platform/webhooks"
+      ],
+      "capabilities": {
+        "social.post": "2026-10-16",
+        "social.reply": "2026-10-16",
+        "social.delete": "2026-10-16",
+        "ingress.normalize": "2026-10-16"
+      }
+    },
+    "id": "instagram",
+    "contractVersion": 1,
+    "displayName": "Instagram",
+    "datatypes": ["social-post"],
+    "capabilities": ["social.post", "social.reply", "social.delete", "ingress.normalize"],
+    "egressHosts": ["graph.facebook.com", "www.instagram.com", "www.facebook.com"],
+    "oauth": {
+      "authorizeUrl": "https://www.facebook.com/v26.0/dialog/oauth",
+      "tokenUrl": "https://graph.facebook.com/v26.0/oauth/access_token",
+      "clientRegistrationRef": "facebook",
+      "scopeSeparator": ",",
+      "scopes": ["instagram_basic", "instagram_content_publish", "instagram_manage_comments", "pages_show_list", "pages_read_engagement", "pages_manage_metadata"],
+      "identity": { "url": "https://graph.facebook.com/v26.0/me?fields=id,name", "idField": "id", "displayNameField": "name" }
+    },
+    "push": {
+      "signature": { "header": "x-hub-signature-256", "algorithm": "hmac-sha256", "encoding": "hex", "prefix": "sha256=", "oauthClientSecret": true },
+      "verification": { "modeParam": "hub.mode", "modeValue": "subscribe", "tokenParam": "hub.verify_token", "challengeParam": "hub.challenge", "credentialRef": "webhook_verify_token" },
+      "delivery": "normalize"
+    },
+    "setup": {
+      "credentials": [{ "key": "webhook_verify_token", "label": "Webhook verify token", "help": "Use the same verify token in the Meta app's Webhooks settings." }],
+      "appRegistration": {
+        "createUrl": "https://developers.facebook.com/apps/",
+        "docsUrl": "https://developers.facebook.com/docs/instagram-platform/instagram-api-with-facebook-login/",
+        "copyHint": "Create a Meta app with Instagram API through Facebook Login for Business, configure the OAuth callback, and request the declared professional-account scopes. Development mode is limited to app roles; other accounts require review."
+      }
+    },
+    "defaultDestinations": { "social-post": ["document", "event"] },
+    "configSchema": {
+      "type": "object",
+      "required": ["igUserId"],
+      "properties": {
+        "igUserId": { "type": "string", "title": "Instagram professional account id", "pattern": "^[0-9]+$" },
+        "watchWindow": { "type": "integer", "title": "Media to watch for comments", "minimum": 1, "maximum": 25, "default": 25 },
+        "maxMediaPages": { "type": "integer", "minimum": 1, "maximum": 20, "default": 20 }
+      },
+      "additionalProperties": true
+    }
+  }
+}
